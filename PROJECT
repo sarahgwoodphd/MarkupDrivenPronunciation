@@ -1,0 +1,233 @@
+ 
+data-ssml Support for NVDA: Project Description and Technical Plan
+Status: Active development — v0.2 rewrite
+Target: NVDA 2023.1+ · Chrome · SSML-capable synthesizer (SAPI5, Windows OneCore)
+ 
+1. Purpose and Motivation
+Learners with visual impairments, reading disabilities, and other print-access needs rely on text-to-speech (TTS) to access digital educational content. The quality of that speech,
+how acronyms are pronounced, whether pauses occur at the right moments, how technical terms or phonetic content are rendered, directly affects comprehension and, in assessment contexts, validity and legal compliance.
+Web content authors currently have no reliable, interoperable mechanism for controlling TTS pronunciation in HTML. A student hearing a mathematics problem should hear
+"three times x squared plus five" rather than "3 * x ^ 2 + 5" read as individual characters.
+A science passage should pronounce "CRISPR" as a word, not a string of letters. A standardized test delivered digitally must produce the same spoken output across all AT configurations.
+This project implements support for the data-ssml HTML attribute in the NVDA screen reader, enabling content authors in educational and assessment platforms to embed TTS pronunciation hints directly in their HTML markup. It is designed for Chrome-based delivery environments using SSML-capable speech synthesizers.
+ 
+2. Existing Implementations
+Everway SpeechStream (https://www.everway.com/products/speechstream/) is a commercial text-to-speech accessibility tool for online learning and assessment platforms that explicitly supports what it describes as "SSML in HTML" — the earlier informal name for the approach that was subsequently standardized as the data-ssml attribute by the W3C Spoken Presentation Task Force and 1EdTech. SpeechStream demonstrates that the concept of embedding SSML directives directly in HTML has real-world commercial implementation and demand in educational technology, predating and informing the formal standardization work. Its integration with Learnosity illustrates the exact deployment context this NVDA add-on targets.
+ 
+3. Standards Background
+2.1 W3C Spoken Presentation Task Force
+The W3C Accessible Platform Architectures (APA) Working Group chartered the
+Spoken Presentation Task Force specifically to address the gap between what web content displays visually and how assistive technology speaks it. The task force produced foundational documents including a Gap Analysis and an Explainer:
+Explainer
+Motivates the problem with documented real-world examples of TTS mispronunciation in
+educational, medical, legal, and government contexts. Establishes that neither WCAG 2.x
+(which does not address TTS quality below Level AAA SC 3.1.6) nor existing ARIA mechanisms adequately cover pronunciation control. Identifies the scope: the problem is not just one of "wrong word" but of systematic, predictable failures caused by the absence of any standard author-to-AT pronunciation communication channel.
+The Explainer also evaluates six candidate technical approaches for embedding pronunciation hints in HTML:
+Approach	Description	Assessment
+Inline SSML	Raw SSML XML embedded in HTML content	Fails HTML validation; not backward compatible
+data-ssml property	JSON-encoded SSML on HTML elements	Best balance of expressiveness and compatibility
+aria-ssml attribute	ARIA-namespaced JSON equivalent	Requires ARIA spec change; political complexity
+aria-pronunciation	Simplified non-SSML hint attribute	Limited expressiveness; subset of use cases
+CSS Speech module	Pronunciation via CSS properties	Implementation absent in all major browsers
+Pronunciation Lexicon	Linked lexicon document (PLS)	Coarse-grained; cannot target inline elements
+The task force identified the data-ssml property approach as the best candidate: it does
+not require changes to ARIA or HTML specifications, is backward compatible (browsers ignore unknown data attributes), is expressive enough to cover the documented use cases, and maps directly to the well-established W3C SSML 1.1 standard that TTS engines already implement.
+Gap Analysis
+Documents where current AT and browser implementations fall short, covering use cases across domains including education, medicine, law, and multilingual content:
+•	Acronym and abbreviation expansion (NASA, HVAC, HTML)
+•	Medical and scientific terminology (dosage amounts, chemical formulas, Latin nomenclature)
+•	Proper name pronunciation (personal names, place names, brand names)
+•	Mathematical and technical notation
+•	Assessment content where mispronunciation could affect response validity
+A key finding directly relevant to this project: no mainstream browser currently exposes
+custom pronunciation attributes through accessibility APIs to screen readers. This gap, the subject of the technical challenge section below,  is the primary implementation obstacle.
+All W3C Spoken Presentation Task Force documents are published at:
+https://www.w3.org/WAI/about/groups/task-forces/spoken-presentation/
+ 
+2.2 1EdTech data-ssml Specification
+"Support for Speech Synthesis Markup Language (SSML) Using the 'data-ssml' Property"
+Version 1.0 · 1EdTech Final Release · 1 July 2024
+Author: Colin Smythe (1EdTech Consortium)
+https://www.1edtech.org/standards/data-ssml
+1EdTech (formerly IMS Global Learning Consortium) is the primary standards body for
+interoperable educational technology, including the Question and Test Interoperability (QTI) specification used by many digital assessment platforms. The data-ssml specification was adopted into QTI 3.0 as a normative component, making it a requirement for compliant assessment delivery platforms.
+Specification Summary
+The attribute value is a JSON object encoding a strict subset of W3C SSML 1.1 directives.
+The schema uses additional “Properties: false” meaning no vendor extensions are permitted.
+
+Five elements are defined:
+sub — Text Substitution
+Replaces the element's visible text with a spoken alias. Used for acronyms, abbreviations,
+symbols, and any case where the visual text differs from the intended spoken form.
+{ "sub": { "alias": "World Wide Web Consortium" } }
+Applied to: <span data-ssml='{"sub":{"alias":"World Wide Web Consortium"}}'>W3C</span>
+break — Pause
+Inserts a pause at the element's location. Accepts either a named strength boundary or an
+exact CSS time duration. Typically applied to whitespace-only <span> elements placed
+between words or sentences.
+{ "break": { "time": "500ms", "strength": "medium" } }
+Strength values: none, x-weak, weak, medium (default), strong, x-strong
+prosody — Rate Control
+Controls the speaking rate for the element's content. Accepts named keywords or a percentage
+multiplier of the default rate. Note: pitch and volume are deliberately excluded from this
+subset due to inconsistent cross-synthesizer support.
+{ "prosody": { "rate": "fast" } }
+{ "prosody": { "rate": "90%" } }
+Rate keywords: x-slow, slow, medium, fast, x-fast, default
+say-as — Interpretation Type
+Instructs the TTS how to interpret the element's text content.
+{ "say-as": { "interpret-as": "characters" } }
+Interpretation values: date, time, telephone, characters, cardinal, ordinal
+phoneme — Explicit Phonetic Pronunciation
+Provides an explicit phonemic pronunciation string using IPA or X-SAMPA encoding. The
+visible text serves as fallback for synthesizers that do not support the phoneme command.
+{ "phoneme": { "ph": "pɪˈkɑːn", "alphabet": "ipa" } }
+Relationship to WCAG
+The 1EdTech specification cites alignment with WCAG 2.2 Success Criterion 3.1.6 Pronunciation (Level AAA): "A mechanism is available for identifying specific pronunciation of words where meaning of the words, in context, is ambiguous without knowing the pronunciation." The data-ssml attribute is positioned as the standards-based mechanism for meeting this criterion in HTML content.
+ 
+4. Implementation Plan
+3.1 The Core Technical Challenge
+Chrome's accessibility layer does not expose data-* HTML attributes through any standard AT accessibility API. This was confirmed by examining Chromium's ComputeAttributes() function in ui/accessibility/platform/ax_platform_node_base.cc, which maintains an explicit allowlist of exposed attributes — custom data-* attributes are categorically excluded.
+This constraint is not specific to NVDA: no screen reader can read data-ssml from Chrome via standard accessibility APIs. The W3C Spoken Presentation Task Force Gap Analysis documents this as an outstanding platform gap.
+Additional findings from NVDA internals research:
+•	NVDA's ISimpleDOMNode.attributesForNames() pattern (used to read data-mathml from Firefox) does not work in Chrome — Chromium does not implement the ISimpleDOMNode COM interface
+•	In NVDA's speakTextInfo hook, info.obj is the VirtualBuffer document root, not the element being spoken; per-element access requires getNVDAObjectFromIdentifier()
+•	NVDA has no raw SSML passthrough mechanism — all speech modifications must use NVDA's structured speech command objects (BreakCommand, RateCommand, PhonemeCommand, etc.)
+3.2 Two-Track Bridge Strategy
+Track A — Chrome Extension Bridge (Baseline, deliverable immediately)
+A companion Chrome extension reads data-ssml from the live DOM (where it is fully accessible to JavaScript) and writes the value into aria-description with a sentinel prefix
+(NVDA-SSML:) that the NVDA add-on recognizes. Chrome exposes aria-description through its IAccessible2 implementation as the accessible description property.
+HTML element with data-ssml="..."
+    ↓  Chrome extension (MutationObserver on DOMContentLoaded + mutations)
+element.setAttribute('aria-description', 'NVDA-SSML:' + dataSsmlValue)
+    ↓  Chrome accessibility tree (IAccessible2 description attribute)
+NVDA reads obj.description → detects sentinel → parses JSON
+    ↓  NVDA add-on applies speech transformations
+This approach requires no changes to Chrome, NVDA core, or content authoring. It does require users to install both the NVDA add-on and the Chrome extension.
+Open question for NVDA hackathon experts: Is aria-description the most appropriate
+carrier attribute, or is there a semantically neutral IA2-exposed attribute better suited to
+this role? Specifically: how should the extension handle elements that already have a
+meaningful aria-description?
+Track B — Chrome DevTools Protocol Bridge (Hackathon target)
+Chromium's accessibility node IDs and DOM node IDs share the same underlying object graph (BrowserAccessibilityManager). If the IA2 node IDs accessible from VirtualBufferTextInfo correspond to CDP nodeId values, an NVDA add-on can open a WebSocket to Chrome's debug endpoint and call DOM.getAttributes({nodeId}) to retrieve all HTML attributes, including data-ssml, directly from the live DOM.
+NVDA speakTextInfo hook fires
+    ↓  info._getFieldIdentifierFromOffset(info._startOffset) → (docHandle, nodeID)
+CDP WebSocket: DOM.getAttributes({nodeId: nodeID})
+    ↓  returns all HTML attributes including data-ssml
+parse JSON → build NVDA speech sequence
+This is the architecturally correct long-term solution: no authoring changes, full attribute
+access, no semantic pollution of ARIA attributes. Its viability depends on the IA2↔CDP node ID mapping, which requires validation by NVDA/Chromium experts.
+Key questions for the hackathon:
+1.	Do docHandle/nodeID from VirtualBufferTextInfo map 1:1 to CDP nodeId values?
+2.	What is the recommended mechanism for enabling CDP access — --remote-debugging-port
+launch flag, or a native messaging host exposed by a companion Chrome extension?
+3.	Can data-ssml lookup be prefetched on virtual cursor movement to avoid async latency
+during speech generation?
+Track C — Long-term Advocacy (Post-hackathon)
+File a Chromium feature request to expose data-ssml as a named IA2/UIA object attribute,
+eliminating the need for any bridge. Co-author with the W3C Spoken Presentation Task Force and NVDA project as supporting organizations.
+3.3 NVDA Speech Pipeline
+NVDA's confirmed speech generation pipeline (relevant to add-on hook points):
+Virtual cursor navigation / focus change
+  → speech.speakTextInfo(info, ...)        ← Hook 1: context capture
+      → getTextInfoSpeech(info, ...)
+          → filter_speechSequence          ← Hook 2: sequence transformation
+      → speech.speak(sequence)
+          → SynthDriver.speak()            ← builds SSML internally from commands
+Both hooks are called synchronously on the main thread. State set in Hook 1 is visible
+to Hook 2 without concurrency risk.
+Hook 1 is a minimal closure-based patch of speech.speakTextInfo that:
+•	Extracts the per-element NVDAObject from the VirtualBufferTextInfo
+•	Reads the bridged data-ssml value from obj.description
+•	Stores parsed data in a module-level variable
+•	Calls the original function unchanged
+•	Clears the variable in a finally block
+Hook 2 uses speech.filter_speechSequence, the proper NVDA extension point:
+•	Registered via speech.filter_speechSequence.register(handler)
+•	Receives the full SpeechSequence, returns a (possibly modified) sequence
+•	Unregistered cleanly in GlobalPlugin.terminate()
+3.4 data-ssml → NVDA Speech Commands
+NVDA constructs SSML internally from structured command objects. All data-ssml transformations
+use confirmed real NVDA speech commands:
+data-ssml feature	NVDA command	Notes
+sub	Text replacement (string operation)	No speech command needed
+break	BreakCommand(time=ms)	ms is int milliseconds
+prosody.rate	RateCommand(multiplier=float)	Wraps sequence; reset at end
+say-as: characters	CharacterModeCommand(True/False)	Toggle on/off around text
+say-as: cardinal/ordinal/date/time/telephone	Text pass-through + warning log	No NVDA equivalent in v0.2
+phoneme	PhonemeCommand(ipa_string, fallback_text)	Conditional on synth support
+Rate keyword → multiplier:
+x-slow → 0.5 · slow → 0.75 · medium/default → 1.0 · fast → 1.5 · x-fast → 2.0
+Percentage: "90%" → 0.9
+Break strength → milliseconds (when no time given):
+none → 0 · x-weak → 100 · weak → 200 · medium → 400 · strong → 600 · x-strong → 1000
+Both the spec JSON format (single object, applied to whole element) and the extended format (array with per-substring text targeting) are supported and normalized to a common internal representation by parser.py.
+3.5 SSML-Capable TTS Gating
+The add-on is inert unless the active synthesizer supports the required speech commands.
+Detection uses synth.supportedCommands, a frozenset of speech command classes:
+REQUIRED = {BreakCommand, RateCommand, CharacterModeCommand}
+OPTIONAL = {PhonemeCommand}  # graceful degradation if absent
+
+def _capable():
+    synth = synthDriverHandler.getSynth()
+    return synth is not None and REQUIRED.issubset(synth.supportedCommands)
+Both SAPI5 and Windows OneCore support all required and optional commands. The capability check re-runs whenever the synthesizer changes. If the check fails, all speech passes through unchanged with no user-visible error.
+3.6 Module Structure
+data-ssml-nvda/
+├── PROJECT.md                        ← this document
+├── addon/
+│   ├── manifest.ini                  ← v0.2.0, NVDA 2023.1+
+│   ├── readme.md
+│   └── globalPlugins/
+│       └── datassml/
+│           ├── __init__.py           ← GlobalPlugin: hooks, detection, gating
+│           ├── parser.py             ← JSON parsing + normalization
+│           └── builder.py            ← SpeechSequence construction
+├── chrome-extension/
+│   ├── manifest.json                 ← MV3 extension manifest
+│   └── content.js                   ← MutationObserver → aria-description bridge
+└── tests/
+    ├── test_parser.py                ← Pure Python unit tests (no NVDA required)
+    ├── test_builder.py               ← Unit tests with mocked speech.commands
+    └── fixtures/
+        └── test_page.html            ← One section per data-ssml feature
+ 
+5. Hackathon Expert Agenda
+The following questions will be brought to NVDA core developers at the hackathon for
+resolution. Their answers determine which implementation track becomes primary.
+#	Question	Determines
+1	Do Chrome IA2 docHandle/nodeID values from VirtualBufferTextInfo correspond to CDP nodeId values?	Whether Track B is viable
+2	Correct NVDA pattern for per-element NVDAObject from VirtualBufferTextInfo: _getFieldIdentifierFromOffset → getNVDAObjectFromIdentifier?	Track A detection accuracy
+3	Best carrier attribute for Track A bridge — is aria-description appropriate, or is there a semantically neutral alternative Chrome exposes through IA2?	Track A architectural soundness
+4	Correct NVDA event/callback for synthesizer switches (for capability re-gating)?	Synth gating reliability
+5	Is adding native data-ssml support to NVDA virtual buffer code (virtualBuffers/__init__.py, virtualBuffers/gecko_ia2.py) a viable NVDA core contribution?	Long-term roadmap
+6	Would the NVDA project co-author a Chromium bug requesting data-ssml exposure as an IA2/UIA object attribute?	Track C advocacy
+ 
+6. Limitations (v0.2)
+Item	Status
+Chrome + IAccessible2 (Track A bridge)	✅ Viable, implemented
+Chrome + CDP direct DOM access (Track B)	⚠️ Pending hackathon expert validation
+Firefox	❌ Out of scope for this project
+Elements with pre-existing aria-description	⚠️ Conflict resolution strategy TBD with experts
+say-as: date / time / telephone / cardinal / ordinal	⚠️ Pass-through in v0.2; no NVDA built-in
+phoneme support	⚠️ Synth-dependent; graceful degradation to fallback text
+Non-SSML-capable TTS	❌ Add-on silently disables; no error shown to user
+Dynamic SPA content (post-navigation DOM changes)	✅ Handled by MutationObserver in Chrome extension
+ 
+7. References
+Specifications
+•	1EdTech: "Support for Speech Synthesis Markup Language (SSML) Using the 'data-ssml' Property, Version 1.0." Colin Smythe. 1EdTech Final Release, 1 July 2024. https://www.1edtech.org/standards/data-ssml
+•	W3C: "Speech Synthesis Markup Language (SSML) Version 1.1." W3C Recommendation, 7 September 2010. https://www.w3.org/TR/speech-synthesis11/
+•	W3C: "Accessible Rich Internet Applications (WAI-ARIA) 1.2." W3C Recommendation. https://www.w3.org/TR/wai-aria-1.2/
+W3C Spoken Presentation Task Force
+•	Task Force home (Explainer, Gap Analysis, and all published documents): https://www.w3.org/WAI/about/groups/task-forces/spoken-presentation/
+NVDA
+•	NVDA Developer Guide 2024.4: https://www.nvaccess.org/documentation/developerGuide.html
+•	NVDA Add-on Development Guide: https://github.com/nvdaaddons/DevGuide/wiki
+•	NVDA source (speech module): https://github.com/nvaccess/nvda/tree/master/source/speech
+•	NVDA source (virtual buffers): https://github.com/nvaccess/nvda/tree/master/source/virtualBuffers
+Standards
+•	WCAG 2.2 SC 3.1.6 Pronunciation (Level AAA): https://www.w3.org/TR/WCAG22/#pronunciation
+•	1EdTech data-ssml landing page (standard + links): https://www.1edtech.org/standards/data-ssml
+Other
+•	Everway SpeechStream — commercial TTS tool supporting "SSML in HTML" (earlier name for the data-ssml approach) in educational and assessment platforms: https://www.everway.com/products/speechstream/
