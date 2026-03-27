@@ -1,7 +1,7 @@
  
 data-ssml Support for NVDA: Project Description and Technical Plan
 Status: Active development — v0.2 rewrite
-Target: NVDA 2023.1+ · Chrome · SSML-capable synthesizer (SAPI5, Windows OneCore)
+Target: NVDA 2025.x or later · Chrome · SSML-capable synthesizer (SAPI5, Windows OneCore)
  
 1. Purpose and Motivation
 Learners with visual impairments, reading disabilities, and other print-access needs rely on text-to-speech (TTS) to access digital educational content. The quality of that speech,
