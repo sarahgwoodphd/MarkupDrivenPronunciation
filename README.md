@@ -36,9 +36,11 @@ This repository is a hackathon-oriented proof of concept, not a complete platfor
 - `PROJECT.md` — full technical plan
 - `docs/project-scope.md` — in-scope and out-of-scope boundaries
 - `docs/open-questions.md` — unresolved technical and design questions
+- `docs/related-work.md` — related repositories and background
 - `examples/` — sample HTML and QTI content
 - `test-data/` — short phrases and expected behavior for testing
 - `prototype/` or `addon/` — implementation work as it evolves
+
 
 ## Contribution areas
 
