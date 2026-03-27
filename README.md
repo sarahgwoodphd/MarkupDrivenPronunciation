@@ -74,6 +74,12 @@ The technical plan currently explores a baseline Chrome extension bridge togethe
 
 For technical details, implementation notes, and open architecture questions, see `PROJECT.md`.
 
+
+## How this repo differs
+
+This repository is the working hackathon project repo for Markup-Driven Pronunciation. It brings together the project overview, technical plan, contributor guidance, and open questions in one place, while `docs/related-work.md` lists other repos as experiments and background.
+
+
 ## References
 
 - 1EdTech: Support for Speech Synthesis Markup Language (SSML) Using the `data-ssml` Property — https://www.1edtech.org/standards/data-ssml
