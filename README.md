@@ -25,7 +25,7 @@ The project is designed to improve spoken output while preserving visible text a
 
 Current work is focused on:
 
-- NVDA 2023.1 or later;
+- NVDA 2025.x or later;
 - Chrome-based delivery environments; and
 - SSML-capable synthesizers such as SAPI5 and Windows OneCore.
 
